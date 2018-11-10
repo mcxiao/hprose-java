@@ -22,14 +22,18 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.channels.CancelledKeyException;
 import java.nio.channels.ClosedSelectorException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import hprose.util.UncaughtExceptionHandlerUtils;
 
 public final class Connector extends Thread {
     protected final AtomicInteger size = new AtomicInteger(0);
@@ -75,20 +79,32 @@ public final class Connector extends Thread {
                 conn.connect(selector);
             }
             catch (Exception e) {
+//                UncaughtExceptionHandlerUtils.report(e);
                 conn.timeoutClose();
             }
         }
     }
 
     private void dispatch() throws IOException {
-        int n = selector.select();
+        int n;
+        try {
+            n = selector.select();
+        } catch (CancelledKeyException e) {
+            UncaughtExceptionHandlerUtils.report(e);
+            n = 1;  // trigger follow logic
+        }
         if (n == 0) return;
-        Iterator<SelectionKey> it = selector.selectedKeys().iterator();
-        while (it.hasNext()) {
-            SelectionKey key = it.next();
-            it.remove();
-            if (key.isConnectable()) {
-                connect(key);
+        Set<SelectionKey> selectionKeys = selector.selectedKeys();
+        if (selectionKeys != null) {
+            Iterator<SelectionKey> it = selectionKeys.iterator();
+            while (it.hasNext()) {
+                SelectionKey key = it.next();
+                it.remove();
+                if (key.isValid()) {
+                    if (key.isConnectable()) {
+                        connect(key);
+                    }
+                }
             }
         }
     }
@@ -102,6 +118,7 @@ public final class Connector extends Thread {
                 success = channel.finishConnect();
             }
             catch (IOException e) {
+//                UncaughtExceptionHandlerUtils.report(e);
                 conn.timeoutClose();
             }
         }

@@ -20,6 +20,8 @@ package hprose.net;
 
 import java.io.IOException;
 
+import hprose.util.UncaughtExceptionHandlerUtils;
+
 public class ReactorGroup {
     private final Reactor[] reactors;
     private int index;
@@ -34,7 +36,9 @@ public class ReactorGroup {
     public void start() {
         int n = reactors.length;
         for (int i = 0; i < n; ++i) {
-            reactors[i].start();
+            Reactor reactor = reactors[i];
+            reactor.setUncaughtExceptionHandler(UncaughtExceptionHandlerUtils.sDefaultUEH);
+            reactor.start();
         }
     }
 

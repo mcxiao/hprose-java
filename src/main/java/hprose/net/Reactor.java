@@ -29,6 +29,8 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+import hprose.util.UncaughtExceptionHandlerUtils;
+
 public final class Reactor extends Thread {
 
     private final Selector selector;
@@ -87,24 +89,33 @@ public final class Reactor extends Thread {
     }
 
     private void dispatch() throws IOException {
-        int n = selector.select();
+        int n;
+        try {
+            n = selector.select();
+        } catch (CancelledKeyException e) {
+            UncaughtExceptionHandlerUtils.report(e);
+            n = 1;
+        }
         if (n == 0) return;
-        Iterator<SelectionKey> it = selector.selectedKeys().iterator();
-        while (it.hasNext()) {
-            SelectionKey key = it.next();
-            Connection conn = (Connection) key.attachment();
-            it.remove();
-            try {
-                int readyOps = key.readyOps();
-                if ((readyOps & SelectionKey.OP_READ) != 0) {
-                    if (!conn.receive()) continue;
+        Set<SelectionKey> selectionKeys = selector.selectedKeys();
+        if (selectionKeys != null) {
+            Iterator<SelectionKey> it = selectionKeys.iterator();
+            while (it.hasNext()) {
+                SelectionKey key = it.next();
+                Connection conn = (Connection) key.attachment();
+                it.remove();
+                try {
+                    int readyOps = key.readyOps();
+                    if ((readyOps & SelectionKey.OP_READ) != 0) {
+                        if (!conn.receive()) continue;
+                    }
+                    if ((readyOps & SelectionKey.OP_WRITE) != 0) {
+                        conn.send();
+                    }
                 }
-                if ((readyOps & SelectionKey.OP_WRITE) != 0) {
-                    conn.send();
+                catch (CancelledKeyException e) {
+                    conn.close();
                 }
-            }
-            catch (CancelledKeyException e) {
-                conn.close();
             }
         }
     }
